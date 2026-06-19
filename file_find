@@ -1,40 +1,64 @@
-프로그램 작성 내용 요약
-폴더 생성 처리
+📑 프로그램 구조 및 로직 요약
+1. 결과 폴더 자동 생성
+os.makedirs(result_dir, exist_ok=True) 사용 → 결과 폴더가 없으면 자동으로 생성
 
-os.makedirs(result_dir, exist_ok=True)를 사용해 결과 폴더가 없으면 자동으로 생성되도록 했습니다.
+2. 결과 파일 네 가지 생성
+[하위폴더명]_insert_not_result.txt  
+→ INSERT 문이 없는 파일 기록
 
-결과 파일 네 가지 생성
+[하위폴더명]_insert_sign_result.txt  
+→ INSERT 앞에 "--", "@", "#" 같은 특수문자가 있는 경우 기록
 
-[하위폴더명]_insert_not_result.txt → INSERT 문이 없는 파일 기록
+[하위폴더명]_insert_result.txt  
+→ 정상적인 INSERT 문 전체 줄 기록
 
-[하위폴더명]_insert_sign_result.txt → INSERT 앞에 "--", "@", "#" 같은 특수문자가 있는 경우 기록
+INSERT 다음에 into/overwrite가 없으면 → 다음 줄 기록
 
-[하위폴더명]_insert_result.txt → 정상적인 INSERT 문 전체 줄 기록
+다음 줄에도 없으면 → 그다음 줄까지 기록 (최대 3줄)
 
-단, INSERT 다음에 into나 overwrite가 없으면 다음 줄까지 기록
+[하위폴더명]_insert_distinct_result.txt  
+→ 테이블명 추출 후 중복 제거(DISTINCT) 기록
 
-그 다음 줄에도 into/overwrite가 없으면 그다음 줄까지 추가 기록 (최대 3줄까지)
+3. 테이블명 추출 로직
+1단계: INSERT 다음 ${테이블명} 패턴을 찾아 추출
 
-[하위폴더명]_insert_distinct_result.txt → INSERT 다음에 ${테이블명} 패턴을 찾아 공백·스페이스·줄바꿈 전까지의 문자열을 추출해 중복 제거 후 기록
+2단계: 없으면 같은 라인에서 into 또는 overwrite 뒤의 테이블명 추출
 
-파일명 규칙
+3단계: 같은 라인에도 없으면 다음 라인에서 into 또는 overwrite 뒤의 테이블명 추출
 
+추출된 테이블명은 set()으로 중복 제거 후 insert_distinct_result.txt에 기록
+
+4. 파일명 규칙
 target_folder 경로에서 midp 다음 하위 폴더명(HUB 등)을 자동 추출해 결과 파일명 앞에 붙임
 
 예: HUB_insert_result.txt, HUB_insert_distinct_result.txt
 
-인코딩 처리
+5. 인코딩 처리
+파일을 열 때 utf-8, cp949, euc-kr, latin1 순으로 시도 → 깨짐 방지
 
-파일을 열 때 utf-8, cp949, euc-kr, latin1 순으로 시도해 깨짐 방지
+📄 최종 코드 스니펫 (핵심 부분)
+python
+# 테이블명 추출 로직
+table_name = None
+# 1) ${테이블명} 패턴
+match = re.search(r'insert.*?(\$\{[^\s\r\n]+)', line, re.IGNORECASE)
+if match:
+    table_name = match.group(1)
+else:
+    # 2) 같은 라인에서 into/overwrite 뒤 테이블명
+    match2 = re.search(r'(?:into|overwrite)\s+([^\s\r\n]+)', line, re.IGNORECASE)
+    if match2:
+        table_name = match2.group(1)
+    else:
+        # 3) 다음 라인에서 into/overwrite 뒤 테이블명
+        if line_number < len(lines):
+            next_line = lines[line_number]
+            match3 = re.search(r'(?:into|overwrite)\s+([^\s\r\n]+)', next_line, re.IGNORECASE)
+            if match3:
+                table_name = match3.group(1)
 
-테이블명 추출 로직
-
-정규식 re.search(r'insert.*?(\$\{[^\s\r\n]+)', line, re.IGNORECASE) 사용
-
-INSERT 다음에 ${로 시작해 공백·스페이스·줄바꿈 전까지의 문자열을 추출
-
-set()을 사용해 중복 제거 후 insert_distinct_result.txt에 기록
-
+if table_name:
+    distinct_tables.add(table_name)
 ⚙️ 실행 흐름
 target_folder와 result_dir 지정
 
@@ -44,4 +68,10 @@ target_folder와 result_dir 지정
 
 조건에 따라 네 가지 결과 파일에 기록
 
+테이블명 추출 후 DISTINCT 처리
+
 실행 완료 후 결과 파일 확인
+
+이제 이 프로그램은 다중 라인 INSERT 구문 처리와 테이블명 추출 보완 로직까지 모두 반영된 최종 버전입니다.
+
+👉 마지막으로, 테이블명을 기록할 때 원본 그대로 저장할지, 아니면 소문자로 변환해서 일관성 있게 관리할지 선택하시면 됩니다.
